@@ -274,11 +274,11 @@ Our model inference script can automatically save the model's input and output f
 <details open><summary>Welcome to try our deep research agent series: </summary><p>
 
 
-> [**DeepAgent: A General Reasoning Agent with Scalable Toolsets (New!)**](https://arxiv.org/abs/2510.21618) <br>
+> [**DeepAgent: A General Reasoning Agent with Scalable Toolsets (WWW 2026)**](https://arxiv.org/abs/2510.21618) <br>
 > **TLDR:** An end-to-end deep reasoning agent that performs autonomous thinking, tool discovery, and action execution with brain-inspired memory folding mechanism. <br>
 [![github](https://img.shields.io/badge/-Github-black?logo=github)](https://github.com/RUC-NLPIR/DeepAgent) [![github](https://img.shields.io/github/stars/RUC-NLPIR/DeepAgent.svg?style=social)](https://github.com/RUC-NLPIR/DeepAgent) [![arXiv](https://img.shields.io/badge/Arxiv-2510.21618-b31b1b.svg?logo=arXiv)](https://arxiv.org/abs/2510.21618) [![Paper](https://img.shields.io/badge/Hugging%20Face-Paper-yellow?logo=huggingface)](https://huggingface.co/papers/2510.21618) [![X (formerly Twitter) URL](https://img.shields.io/twitter/url?url=https%3A%2F%2Fx.com%2FXiaoxiLi0111%2Fstatus%2F1982649697467859438)](https://x.com/XiaoxiLi0111/status/1982649697467859438)
 
-> [**Agentic Entropy-Balanced Policy Optimization**](https://arxiv.org/abs/2510.14545) <br>
+> [**Agentic Entropy-Balanced Policy Optimization (WWW 2026)**](https://arxiv.org/abs/2510.14545) <br>
 > **TLDR:** An agentic RL algorithm designed to balance entropy in both the rollout and policy update phases. <br>
 [![github](https://img.shields.io/badge/-Github-black?logo=github)](https://github.com/RUC-NLPIR/ARPO) [![github](https://img.shields.io/github/stars/RUC-NLPIR/ARPO.svg?style=social)](https://github.com/RUC-NLPIR/ARPO) [![arXiv](https://img.shields.io/badge/Arxiv-2510.14545-b31b1b.svg?logo=arXiv)](https://arxiv.org/abs/2510.14545) [![Paper](https://img.shields.io/badge/Hugging%20Face-Paper-yellow?logo=huggingface)](https://huggingface.co/papers/2510.14545) [![X (formerly Twitter) URL](https://img.shields.io/twitter/url?url=https%3A%2F%2Fx.com%2FKevin_GuoweiXu%2Fstatus%2F1858338565463421244)]()
 
