@@ -1,0 +1,98 @@
+# Kubernetes Deployment for DeepAgent Main Service
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deepagent
+  namespace: liuyunxin
+  labels:
+    app: deepagent
+    component: agent
+spec:
+  replicas: 1  
+  selector:
+    matchLabels:
+      app: deepagent
+      component: agent
+  template:
+    metadata:
+      labels:
+        app: deepagent
+        component: agent
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+      - name: deepagent
+        image: harbor.xa.xshixun.com:7443/hanfeigeng/deepagent:latest
+        imagePullPolicy: Always
+        command: ["python"]
+        args:
+          - "src/run_deep_agent.py"
+          - "--config_path=$(CONFIG_PATH)"
+          - "--enable_tool_search"
+          - "--enable_thought_folding"
+          - "--eval"
+        env:
+          # Load from ConfigMap
+          - name: CONFIG_PATH
+            valueFrom:
+              configMapKeyRef:
+                name: deepagent-config
+                key: CONFIG_PATH
+          # Hugging Face cache
+          - name: HF_HOME
+            value: "/root/.cache/huggingface"
+          # Load from Secret
+          - name: GOOGLE_SERPER_API_KEY
+            valueFrom:
+              secretKeyRef:
+                name: deepagent-secrets
+                key: GOOGLE_SERPER_API_KEY
+          - name: JINA_API_KEY
+            valueFrom:
+              secretKeyRef:
+                name: deepagent-secrets
+                key: JINA_API_KEY
+          - name: RAPIDAPI_KEY
+            valueFrom:
+              secretKeyRef:
+                name: deepagent-secrets
+                key: RAPIDAPI_KEY
+        resources:
+          requests:
+            cpu: "8"
+            memory: "16Gi"
+          limits:
+            cpu: "8"
+            memory: "16Gi"
+        volumeMounts:
+          - name: config-volume
+            mountPath: /app/config
+          - name: app-storage
+            mountPath: /app/data
+            subPath: data
+          - name: app-storage
+            mountPath: /app/outputs
+            subPath: outputs
+          - name: app-storage
+            mountPath: /app/logs
+            subPath: logs
+          - name: hf-cache-volume
+            mountPath: /root
+      volumes:
+        - name: config-volume
+          configMap:
+            name: deepagent-config
+            items:
+              - key: base_config.yaml
+                path: base_config.yaml
+        - name: app-storage
+          persistentVolumeClaim:
+            claimName: deepagent-app-pvc
+        - name: hf-cache-volume
+          persistentVolumeClaim:
+            claimName: pvc-gpfshome-liuyunxin
+      terminationGracePeriodSeconds: 30

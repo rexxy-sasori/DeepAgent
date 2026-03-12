@@ -1,0 +1,113 @@
+# Git and version control
+.git
+.gitignore
+.gitattributes
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg
+*.egg-info/
+.eggs/
+*.manifest
+*.spec
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+env.bak/
+venv.bak/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Build artifacts
+build/
+dist/
+*.log
+
+# Test and coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+nosetests.xml
+coverage.xml
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Environments
+.env
+.env.local
+.env.*.local
+
+# Data (too large for Docker context)
+data/ALFWorld/
+data/API-Bank/
+data/ToolBench/
+data/GAIA/
+data/HLE/
+*.jsonl
+*.json
+
+# Models (should be downloaded or mounted)
+models/
+*.bin
+*.pt
+*.pth
+*.onnx
+*.h5
+
+# Outputs and logs
+outputs/
+logs/
+*.log
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Kubernetes manifests (already in k8s/)
+k8s/*.yaml
+!kustomization.yaml
+
+# Docker
+Dockerfile
+docker-compose.yml
+build.sh
+.dockerignore
+
+# Scripts
+*.sh
+!start.sh
+
+# Config (will be mounted or from ConfigMap)
+config/*.yaml
+!config/base_config.yaml
+
+# Figures and images
+figures/
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.svg
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.bak
+*.backup

@@ -1,4 +1,4 @@
-vllm
+sglang
 transformers
 sentence-transformers
 aiohttp
