@@ -5,6 +5,7 @@ aiohttp
 alfworld
 beautifulsoup4
 chardet
+crawl4ai
 fastapi
 fuzzywuzzy
 func-timeout

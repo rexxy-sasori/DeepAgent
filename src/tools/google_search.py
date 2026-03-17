@@ -1,7 +1,16 @@
 import os
 import json
+import time
 import requests
 from requests.exceptions import Timeout
+from requests.adapters import HTTPAdapter
+
+# Global rate limiting for Serper API
+_last_serper_request_time = None
+
+# Global rate limiting for Crawl4AI (to be polite to target websites)
+_last_crawl4ai_request_time = None
+from urllib3.util.ssl_ import create_urllib3_context
 from bs4 import BeautifulSoup
 from tqdm import tqdm
 import time
@@ -12,12 +21,75 @@ from io import BytesIO
 import re
 import string
 from typing import Optional, Tuple
+
+# Try to import Crawl4AI (optional dependency)
+try:
+    from crawl4ai import AsyncWebCrawler, BrowserConfig, CrawlerRunConfig, ProxyConfig, CacheMode
+    # Import PDF-specific strategies for handling PDF documents (crawl4ai 0.8.0+)
+    try:
+        from crawl4ai.processors.pdf import PDFCrawlerStrategy, PDFContentScrapingStrategy
+        CRAWL4AI_PDF_AVAILABLE = True
+        print("[Crawl4AI] PDF strategies available and imported successfully")
+    except ImportError as e:
+        CRAWL4AI_PDF_AVAILABLE = False
+        print(f"[Crawl4AI] PDF strategies not available: {e}")
+    CRAWL4AI_AVAILABLE = True
+    print("[Crawl4AI] Available and imported successfully")
+except ImportError as e:
+    CRAWL4AI_AVAILABLE = False
+    CRAWL4AI_PDF_AVAILABLE = False
+    print(f"[Crawl4AI] Not available: {e}")
+except Exception as e:
+    CRAWL4AI_AVAILABLE = False
+    CRAWL4AI_PDF_AVAILABLE = False
+    print(f"[Crawl4AI] Import error (will fallback to requests): {e}")
+
+
+def get_crawl4ai_browser_config():
+    """Get browser configuration for Crawl4AI with proxy and Kubernetes settings."""
+    https_proxy = os.environ.get('https_proxy') or os.environ.get('HTTPS_PROXY')
+    
+    if https_proxy:
+        proxy_config = ProxyConfig(server=https_proxy)
+    else:
+        proxy_config = None
+    
+    browser_config = BrowserConfig(
+        headless=True,
+        proxy_config=proxy_config,
+        extra_args=[
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+            "--disable-dev-shm-usage",
+            "--ignore-certificate-errors"
+        ]
+    ) if proxy_config else BrowserConfig(
+        headless=True,
+        extra_args=[
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+            "--disable-dev-shm-usage",
+            "--ignore-certificate-errors"
+        ]
+    )
+    
+    return browser_config
 from nltk.tokenize import sent_tokenize
 from typing import List, Dict, Union
 import aiohttp
 import asyncio
 import chardet
 import random
+
+
+# Custom Adapter to force TLS 1.2 for Serper API
+class TLS12Adapter(HTTPAdapter):
+    def init_poolmanager(self, *args, **kwargs):
+        context = create_urllib3_context()
+        # OP_NO_TLSv1_3 = 0x4. This forces a maximum of TLS 1.2.
+        context.options |= 0x4
+        kwargs['ssl_context'] = context
+        return super(TLS12Adapter, self).init_poolmanager(*args, **kwargs)
 
 
 # ----------------------- Custom Headers -----------------------
@@ -123,6 +195,7 @@ def extract_snippet_with_context(full_text: str, snippet: str, context_chars: in
 def extract_text_from_url(
     url: str,
     use_jina: bool = False,
+    use_crawl4ai: bool = False,
     jina_api_key: Optional[str] = None,
     snippet: Optional[str] = None,
     keep_links: bool = False
@@ -131,9 +204,79 @@ def extract_text_from_url(
     Synchronous version of extract_text_from_url_async.
     Extract text from a URL (webpage or PDF). If a snippet is provided, extract the context related to it.
     Returns a tuple: (extracted_text, full_text)
+    
+    Args:
+        url: URL to extract text from
+        use_jina: Use Jina AI for extraction
+        use_crawl4ai: Use Crawl4AI for extraction (overrides use_jina if both are set)
+        jina_api_key: API key for Jina
+        snippet: Optional snippet to find context around
+        keep_links: Whether to keep links in the extracted text
     """
     try:
-        if use_jina:
+        # Crawl4AI extraction (has priority if enabled)
+        if use_crawl4ai:
+            if not CRAWL4AI_AVAILABLE:
+                import warnings
+                warnings.warn("use_crawl4ai=True but crawl4ai is not installed. Falling back to requests. Install with: pip install crawl4ai")
+                print(f"[Crawl4AI] FALLBACK to requests for {url} (crawl4ai not available)")
+            else:
+                print(f"[Crawl4AI] Using crawl4ai for {url}")
+                import asyncio
+                
+                # Rate limiting for Crawl4AI (be polite to target websites)
+                global _last_crawl4ai_request_time
+                crawl4ai_min_interval = float(os.environ.get('CRAWL4AI_RATE_LIMIT_INTERVAL', '1.0'))
+                
+                if _last_crawl4ai_request_time is not None:
+                    time_since_last = time.time() - _last_crawl4ai_request_time
+                    if time_since_last < crawl4ai_min_interval:
+                        sleep_time = crawl4ai_min_interval - time_since_last
+                        print(f"Crawl4AI rate limiting: sleeping for {sleep_time:.2f} seconds")
+                        time.sleep(sleep_time)
+                
+                # Check if URL is a PDF and use PDF-specific strategies if available
+                is_pdf = url.lower().endswith('.pdf') or '/pdf/' in url.lower()
+                
+                if is_pdf and CRAWL4AI_PDF_AVAILABLE:
+                    print(f"[Crawl4AI] Using PDF-specific strategies for {url}")
+                    pdf_crawler_strategy = PDFCrawlerStrategy()
+                    pdf_scraping_strategy = PDFContentScrapingStrategy()
+                    run_config = CrawlerRunConfig(scraping_strategy=pdf_scraping_strategy)
+                    
+                    async def crawl_pdf():
+                        async with AsyncWebCrawler(crawler_strategy=pdf_crawler_strategy) as crawler:
+                            result = await crawler.arun(url=url, config=run_config)
+                            return result.markdown.raw_markdown if result.success and result.markdown else ""
+                    
+                    text = asyncio.run(crawl_pdf())
+                elif is_pdf:
+                    print(f"[Crawl4AI] PDF detected but PDF strategies not available, using pdfplumber for {url}")
+                    text = extract_pdf_text(url)
+                else:
+                    async def crawl():
+                        browser_config = get_crawl4ai_browser_config()
+                        
+                        async with AsyncWebCrawler(config=browser_config) as crawler:
+                            result = await crawler.arun(
+                                url=url,
+                                config=CrawlerRunConfig(
+                                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                                    markdown_generator=None,
+                                )
+                            )
+                            return result.markdown if result.success else ""
+                    
+                    text = asyncio.run(crawl())
+                
+                _last_crawl4ai_request_time = time.time()
+                if not keep_links:
+                    pattern = r"\(https?:.*?\)|\[https?:.*?\]"
+                    text = re.sub(pattern, "", text)
+                text = text.replace('---','-').replace('===','=').replace('   ',' ').replace('   ',' ')
+                return text, text
+        
+        elif use_jina:
             # Jina extraction
             jina_headers = {
                 'Authorization': f'Bearer {jina_api_key}',
@@ -146,6 +289,7 @@ def extract_text_from_url(
                 text = re.sub(pattern, "", text)
             text = text.replace('---','-').replace('===','=').replace('   ',' ').replace('   ',' ')
         else:
+            print(f"[Crawl4AI] Using REQUESTS fallback for {url} (use_crawl4ai={use_crawl4ai}, use_jina={use_jina})")
             if 'pdf' in url:
                 # Use PDF handler; keep return signature consistent
                 text = extract_pdf_text(url)
@@ -214,7 +358,7 @@ def extract_text_from_url(
         error_msg = f"Error fetching {url}: {str(e)}"
         return error_msg, error_msg
 
-def fetch_page_content(urls, max_workers=32, use_jina=False, jina_api_key=None, snippets: Optional[dict] = None, show_progress=False, keep_links=False):
+def fetch_page_content(urls, max_workers=32, use_jina=False, use_crawl4ai=False, jina_api_key=None, snippets: Optional[dict] = None, show_progress=False, keep_links=False):
     """
     Concurrently fetch content from multiple URLs.
 
@@ -222,6 +366,7 @@ def fetch_page_content(urls, max_workers=32, use_jina=False, jina_api_key=None, 
         urls (list): List of URLs to scrape.
         max_workers (int): Maximum number of concurrent threads.
         use_jina (bool): Whether to use Jina for extraction.
+        use_crawl4ai (bool): Use Crawl4AI for extraction (overrides use_jina if both are set).
         jina_api_key (str): API key for Jina.
         snippets (Optional[dict]): A dictionary mapping URLs to their respective snippets.
         show_progress (bool): Whether to show progress bar with tqdm.
@@ -233,7 +378,7 @@ def fetch_page_content(urls, max_workers=32, use_jina=False, jina_api_key=None, 
     results = {}
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
-            executor.submit(extract_text_from_url, url, use_jina, jina_api_key, snippets.get(url) if snippets else None, keep_links): url
+            executor.submit(extract_text_from_url, url, use_jina, use_crawl4ai, jina_api_key, snippets.get(url) if snippets else None, keep_links): url
             for url in urls
         }
         completed_futures = concurrent.futures.as_completed(futures)
@@ -343,14 +488,66 @@ class RateLimiter:
             return True
 
 # 创建全局速率限制器实例
-jina_rate_limiter = RateLimiter(rate_limit=130)  # 每分钟xxx次，避免报错
+jina_rate_limiter = RateLimiter(rate_limit=128)  # 每分钟xxx次，避免报错
 
-async def extract_text_from_url_async(url: str, session: aiohttp.ClientSession, use_jina: bool = False, 
-                                    jina_api_key: Optional[str] = None, snippet: Optional[str] = None, 
+async def extract_text_from_url_async(url: str, session: aiohttp.ClientSession, use_jina: bool = False,
+                                    use_crawl4ai: bool = False,
+                                    jina_api_key: Optional[str] = None, snippet: Optional[str] = None,
                                     keep_links: bool = False) -> tuple[str, str]:
     """Async version of extract_text_from_url"""
     try:
-        if use_jina:
+        # Crawl4AI extraction (has priority if enabled)
+        if use_crawl4ai:
+            if not CRAWL4AI_AVAILABLE:
+                import warnings
+                warnings.warn("use_crawl4ai=True but crawl4ai is not installed. Falling back to requests. Install with: pip install crawl4ai")
+            else:
+                # Rate limiting for Crawl4AI (be polite to target websites)
+                global _last_crawl4ai_request_time
+                crawl4ai_min_interval = float(os.environ.get('CRAWL4AI_RATE_LIMIT_INTERVAL', '1.0'))
+
+                if _last_crawl4ai_request_time is not None:
+                    time_since_last = time.time() - _last_crawl4ai_request_time
+                    if time_since_last < crawl4ai_min_interval:
+                        sleep_time = crawl4ai_min_interval - time_since_last
+                        print(f"Crawl4AI rate limiting: sleeping for {sleep_time:.2f} seconds")
+                        await asyncio.sleep(sleep_time)
+
+                # Check if URL is a PDF and use PDF-specific strategies if available
+                is_pdf = url.lower().endswith('.pdf') or '/pdf/' in url.lower()
+                
+                if is_pdf and CRAWL4AI_PDF_AVAILABLE:
+                    print(f"[Crawl4AI] Using PDF-specific strategies for {url}")
+                    pdf_crawler_strategy = PDFCrawlerStrategy()
+                    pdf_scraping_strategy = PDFContentScrapingStrategy()
+                    run_config = CrawlerRunConfig(scraping_strategy=pdf_scraping_strategy)
+                    
+                    async with AsyncWebCrawler(crawler_strategy=pdf_crawler_strategy) as crawler:
+                        result = await crawler.arun(url=url, config=run_config)
+                        text = result.markdown.raw_markdown if result.success and result.markdown else ""
+                elif is_pdf:
+                    print(f"[Crawl4AI] PDF detected but PDF strategies not available, using pdfplumber for {url}")
+                    text = await extract_pdf_text_async(url, session)
+                else:
+                    browser_config = get_crawl4ai_browser_config()
+                    async with AsyncWebCrawler(config=browser_config) as crawler:
+                        result = await crawler.arun(
+                            url=url,
+                            config=CrawlerRunConfig(
+                                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                                markdown_generator=None,
+                            )
+                        )
+                        text = result.markdown if result.success else ""
+                
+                _last_crawl4ai_request_time = time.time()
+                if not keep_links:
+                    pattern = r"\(https?:.*?\)|\[https?:.*?\]"
+                    text = re.sub(pattern, "", text)
+                text = text.replace('---','-').replace('===','=').replace('   ',' ').replace('   ',' ')
+                return text, text
+        
+        elif use_jina:
             # 在调用jina之前获取令牌
             await jina_rate_limiter.acquire()
             
@@ -433,7 +630,7 @@ async def extract_text_from_url_async(url: str, session: aiohttp.ClientSession, 
         error_msg = f"Error fetching {url}: {str(e)}"
         return error_msg, error_msg
 
-async def fetch_page_content_async(urls: List[str], use_jina: bool = False, jina_api_key: Optional[str] = None, 
+async def fetch_page_content_async(urls: List[str], use_jina: bool = False, use_crawl4ai: bool = False, jina_api_key: Optional[str] = None, 
                                  snippets: Optional[Dict[str, str]] = None, show_progress: bool = False,
                                  keep_links: bool = False, max_concurrent: int = 32) -> Dict[str, tuple[str, str]]:
     """Asynchronously fetch content from multiple URLs."""
@@ -450,6 +647,7 @@ async def fetch_page_content_async(urls: List[str], use_jina: bool = False, jina
                     url, 
                     session, 
                     use_jina, 
+                    use_crawl4ai,
                     jina_api_key,
                     snippets.get(url) if snippets else None,
                     keep_links
@@ -502,32 +700,76 @@ async def extract_pdf_text_async(url: str, session: aiohttp.ClientSession) -> st
     except Exception as e:
         return f"Error: {str(e)}"
 
-def google_serper_search(query: str, api_key: str, timeout: int = 5):
+def google_serper_search(query: str, api_key: str, timeout: int = 5, serper_url: str = None, use_tls12: bool = False):
     """
-    Perform a search using the Google Serper API.
+    Perform a search using the Google Serper API or alternative API.
 
     Args:
         query (str): Search query.
         api_key (str): API key for Google Serper API.
         timeout (int or float or tuple): Request timeout in seconds.
+        serper_url (str): Custom Serper API URL. Defaults to https://google.serper.dev/search
+        use_tls12 (bool): Whether to force TLS 1.2 for the request. Some APIs require this.
 
     Returns:
         dict: JSON response of the search results. Returns empty dict if request fails.
     """
-    url = "https://google.serper.dev/search"
-    payload = json.dumps({"q": query})
+    # Use custom URL if provided, otherwise default to Google Serper
+    url = serper_url if serper_url else "https://google.serper.dev/search"
+    
+    # Simple time-based rate limiting for Serper API
+    # Get rate limit from environment or use default (3 seconds = 20 requests/minute)
+    min_interval = float(os.environ.get('SERPER_RATE_LIMIT_INTERVAL', '3.0'))
+    
+    # Declare global variable before use
+    global _last_serper_request_time
+    
+    if _last_serper_request_time is not None:
+        time_since_last = time.time() - _last_serper_request_time
+        if time_since_last < min_interval:
+            sleep_time = min_interval - time_since_last
+            print(f"Rate limiting: sleeping for {sleep_time:.2f} seconds")
+            time.sleep(sleep_time)
+
+    payload = {"q": query, "gl": "us", "hl": "en"}
     headers = {
         'X-API-KEY': api_key,
         'Content-Type': 'application/json'
     }
+    
+    # Get proxy settings from environment
+    http_proxy = os.environ.get('http_proxy') or os.environ.get('HTTP_PROXY')
+    https_proxy = os.environ.get('https_proxy') or os.environ.get('HTTPS_PROXY')
+    proxies = {}
+    if http_proxy:
+        proxies['http'] = http_proxy
+    if https_proxy:
+        proxies['https'] = https_proxy
     
     max_retries = 3
     retry_count = 0
 
     while retry_count < max_retries:
         try:
-            response = requests.post(url, headers=headers, data=payload, timeout=timeout)
-            response.raise_for_status()  # Raise exception if the request failed
+            # Create session with optional TLS 1.2 adapter
+            session = requests.Session()
+            if use_tls12:
+                # Mount TLS 1.2 adapter to the base URL domain
+                from urllib.parse import urlparse
+                parsed_url = urlparse(url)
+                base_domain = f"{parsed_url.scheme}://{parsed_url.netloc}"
+                session.mount(base_domain, TLS12Adapter())
+            
+            response = session.post(
+                url,
+                headers=headers,
+                json=payload,
+                proxies=proxies if proxies else None,
+                timeout=timeout
+            )
+            response.raise_for_status()
+            # Update rate limit timestamp after successful request
+            _last_serper_request_time = time.time()
             search_results = response.json()
             relevant_info = extract_relevant_info_serper(search_results)
             return relevant_info
@@ -581,7 +823,7 @@ def extract_relevant_info_serper(search_results):
 
 
 
-async def google_serper_search_async(query: str, api_key: str, timeout: int = 20):
+async def google_serper_search_async(query: str, api_key: str, timeout: int = 20, serper_url: str = None, use_tls12: bool = False):
     """
     Perform an asynchronous search using the Google Serper API.
 
@@ -589,16 +831,23 @@ async def google_serper_search_async(query: str, api_key: str, timeout: int = 20
         query (str): Search query.
         api_key (str): API key for Google Serper API.
         timeout (int): Request timeout in seconds for each attempt.
+        serper_url (str): Custom Serper API URL. Defaults to https://google.serper.dev/search
+        use_tls12 (bool): Whether to force TLS 1.2 for the request. Some APIs require this.
 
     Returns:
         dict: JSON response of the search results. Returns empty dict if all retries fail.
     """
-    url = "https://google.serper.dev/search"
-    payload = json.dumps({"q": query})
+    # Use custom URL if provided, otherwise default to Google Serper
+    url = serper_url if serper_url else "https://google.serper.dev/search"
+    payload = {"q": query, "gl": "us", "hl": "en"}
     headers_serper = {  # Use a different name to avoid conflict with global headers
         'X-API-KEY': api_key,
         'Content-Type': 'application/json'
     }
+    
+    # Get proxy settings from environment
+    http_proxy = os.environ.get('http_proxy') or os.environ.get('HTTP_PROXY')
+    https_proxy = os.environ.get('https_proxy') or os.environ.get('HTTPS_PROXY')
     
     max_retries = 5
     retry_count = 0
@@ -609,18 +858,21 @@ async def google_serper_search_async(query: str, api_key: str, timeout: int = 20
     async with aiohttp.ClientSession() as session:
         while retry_count < max_retries:
             try:
-                async with session.post(url, headers=headers_serper, data=payload, timeout=client_timeout, ssl=False) as response:
-                    response.raise_for_status()  # Raise AIOHTTPError for bad status (4xx or 5xx)
-                    search_results = await response.json()
-                    relevant_info = extract_relevant_info_serper(search_results)
-                    return relevant_info
+                # Use asyncio.to_thread to run the sync function with optional TLS 1.2 adapter
+                # This avoids SSL issues with aiohttp
+                loop = asyncio.get_event_loop()
+                result = await loop.run_in_executor(
+                    None, 
+                    lambda: google_serper_search(query, api_key, timeout, serper_url, use_tls12)
+                )
+                return result
             except asyncio.TimeoutError:
                 retry_count += 1
                 if retry_count == max_retries:
                     print(f"Google Serper API request timed out ({timeout} seconds) for query: {query} after {max_retries} retries")
                     return {}
                 print(f"Google Serper API Timeout occurred, retrying ({retry_count}/{max_retries})...")
-            except aiohttp.ClientError as e: # Covers ConnectionError, ClientResponseError, etc.
+            except Exception as e: # Covers ConnectionError, ClientResponseError, etc.
                 retry_count += 1
                 if retry_count == max_retries:
                     print(f"Google Serper API Request Error occurred: {e} after {max_retries} retries")

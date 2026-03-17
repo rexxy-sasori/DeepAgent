@@ -225,6 +225,8 @@ class ToolManager:
                     api_key = getattr(args, 'serper_api_key', None) or getattr(args, 'google_serper_api', None)
                     if not api_key:
                         return {"error": "Missing Serper API key (serper_api_key or google_serper_api)."}
+                    serper_url = getattr(args, 'serper_url', None)
+                    use_tls12 = getattr(args, 'use_tls12', False)
                     query = arguments.get('query', '')
                     if not query:
                         return {"error": "Missing required parameter: query"}
@@ -232,8 +234,8 @@ class ToolManager:
                     if query in self.search_cache and isinstance(self.search_cache.get(query), list):
                         print(f"Using cached search results for query: {query}")
                         return self.search_cache[query]
-                    search_results = await google_serper_search_async(query=query, api_key=api_key)
-                    search_results = google_serper_search(query=query, api_key=api_key)
+                    search_results = await google_serper_search_async(query=query, api_key=api_key, serper_url=serper_url, use_tls12=use_tls12)
+                    search_results = google_serper_search(query=query, api_key=api_key, serper_url=serper_url, use_tls12=use_tls12)
                     if search_results:
                         for result in search_results:
                             self.url_to_snippet[result['url']] = result['snippet']
@@ -251,6 +253,9 @@ class ToolManager:
                     if not isinstance(urls, list) or len(urls) == 0:
                         return {"error": "Missing or invalid parameter: urls (non-empty list required)"}
                     use_jina = getattr(args, 'use_jina', False)
+                    use_crawl4ai = getattr(args, 'use_crawl4ai', False)
+                    print(f"[DEBUG] use_crawl4ai from args: {use_crawl4ai}, use_jina: {use_jina}")
+                    print(f"[DEBUG] args attributes: {[a for a in dir(args) if not a.startswith('_') and 'crawl' in a.lower()]}")
                     jina_api_key = getattr(args, 'jina_api_key', None)
                     # use_jina = False
                     # jina_api_key = None
@@ -276,7 +281,7 @@ class ToolManager:
                     uncached_urls = [u for u in urls if u not in self.url_cache]
                     if uncached_urls:
                         # results_dict = await fetch_page_content_async(urls=uncached_urls, use_jina=use_jina, jina_api_key=jina_api_key, snippets=self.url_to_snippet)
-                        results_dict = fetch_page_content(urls=uncached_urls, use_jina=use_jina, jina_api_key=jina_api_key, snippets=self.url_to_snippet)
+                        results_dict = fetch_page_content(urls=uncached_urls, use_jina=use_jina, use_crawl4ai=use_crawl4ai, jina_api_key=jina_api_key, snippets=self.url_to_snippet)
                         for url, text_tuple in results_dict.items():
                             # Expect (extracted_text, full_text) from fetch helpers
                             if isinstance(text_tuple, tuple) and len(text_tuple) == 2:
@@ -287,6 +292,15 @@ class ToolManager:
                                 full_text = str(text_tuple)
                             extracted_text_dict[url] = extracted_text
                             self.url_cache[url] = full_text  # save full text
+
+                    # Apply truncation limit to prevent token overflow
+                    # Max 30k chars per URL to stay within context window
+                    MAX_CONTENT_LENGTH = 50000
+                    for url in extracted_text_dict:
+                        content = extracted_text_dict[url]
+                        if len(content) > MAX_CONTENT_LENGTH:
+                            print(f"[browse_pages] Truncating content for {url} from {len(content)} to {MAX_CONTENT_LENGTH} chars")
+                            extracted_text_dict[url] = content[:MAX_CONTENT_LENGTH] + f"\n\n[Content truncated: {len(content) - MAX_CONTENT_LENGTH} characters omitted. Use web_search with specific query to find more details.]"
 
                     return extracted_text_dict
                 except Exception as e:

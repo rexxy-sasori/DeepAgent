@@ -53,11 +53,6 @@ coverage.xml
 .env.*.local
 
 # Data (too large for Docker context)
-data/ALFWorld/
-data/API-Bank/
-data/ToolBench/
-data/GAIA/
-data/HLE/
 *.jsonl
 *.json
 

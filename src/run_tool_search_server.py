@@ -143,8 +143,8 @@ def main():
 
     # 用你的绝对路径覆盖关键索引/语料路径（其余保持 base_cfg）
     retr_cfg.update({
-        'tool_retriever_model_path': './LLMs/Retrievers/bge-large-en-v1.5',
-        'tool_index_cache_dir': './cache/tool_index',
+        'tool_retriever_model_path': 'BAAI/bge-large-en-v1.5',
+        'tool_index_cache_dir': './data/cache/tool_index',
         'toolbench_corpus_tsv_path': './data/ToolBench/retrieval/G1/corpus.tsv',
         'toolhop_data_path': './data/ToolHop/ToolHop.json',
         'api_bank_apis_dir': './data/API-Bank/apis',

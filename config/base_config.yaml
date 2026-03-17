@@ -31,12 +31,17 @@ model_name: YOUR_SERVED_MODEL_NAME
 base_url: YOUR_REASONING_MODEL_API_BASE  # H800*8
 api_key: YOUR_REASONING_MODEL_API_KEY
 tokenizer_path: /path/to/your/reasoning/model/tokenizer
+max_tokens: 81920
+max_tokens_per_round: 8192
+timeout: 3600
 
 # Auxiliary LLM
 aux_model_name: YOUR_SERVED_AUX_MODEL_NAME
 aux_base_url: YOUR_AUX_MODEL_API_BASE
 aux_api_key: YOUR_AUX_MODEL_API_KEY
 aux_tokenizer_path: /path/to/your/aux/model/tokenizer
+aux_max_tokens: 4096
+aux_timeout: 3600
 
 # VQA
 vqa_model_name: YOUR_SERVED_VQA_MODEL_NAME
@@ -46,6 +51,17 @@ vqa_api_key: YOUR_VQA_MODEL_API_KEY
 # Tool Retriever
 tool_retriever_model_path: /path/to/your/retriever/model
 tool_retriever_api_base: YOUR_SERVED_TOOL_RETRIEVER_API_BASE
+
+# ---------------------------- Runtime Config ----------------------------
+
+# Execution settings
+max_action_limit: 50
+max_fold_limit: 5
+top_k: 10
+
+# Generation settings
+temperature: 0.7
+top_p: 0.8
 
 # ---------------------------- Data Path Config ----------------------------
 
