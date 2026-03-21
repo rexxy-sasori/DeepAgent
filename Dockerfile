@@ -61,6 +61,8 @@ RUN python -c "import nltk; nltk.download('punkt', download_dir='/app/nltk_data'
                nltk.download('averaged_perceptron_tagger', download_dir='/app/nltk_data'); \
                nltk.download('wordnet', download_dir='/app/nltk_data')"
 
+RUN pip install --no-cache-dir --ignore-installed alfworld -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple
+
 # Copy application code
 COPY . .
 

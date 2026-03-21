@@ -295,7 +295,7 @@ class ToolManager:
 
                     # Apply truncation limit to prevent token overflow
                     # Max 30k chars per URL to stay within context window
-                    MAX_CONTENT_LENGTH = 50000
+                    MAX_CONTENT_LENGTH = int(os.getenv('BROWSE_PAGES_MAX_CONTENT_LENGTH', '50000'))
                     for url in extracted_text_dict:
                         content = extracted_text_dict[url]
                         if len(content) > MAX_CONTENT_LENGTH:

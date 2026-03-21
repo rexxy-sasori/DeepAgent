@@ -6,12 +6,16 @@ from typing import List, Dict
 def extract_between(text, start_marker, end_marker):
     """Extracts text between two markers in a string."""
     try:
-        pattern = re.escape(end_marker[::-1]) + r"(.*?)" + re.escape(start_marker[::-1])
-        # Run pattern matching with timeout
-        matches = re.findall(pattern, text[::-1], flags=re.DOTALL)
-        if matches:
-            return matches[0][::-1].strip()
-        return None
+        start_idx = text.find(start_marker)
+        if start_idx == -1:
+            return None
+        start_idx += len(start_marker)
+        
+        end_idx = text.find(end_marker, start_idx)
+        if end_idx == -1:
+            return None
+            
+        return text[start_idx:end_idx].strip()
     except Exception as e:
         print(f"---Error:---\n{str(e)}")
         print(f"-------------------")

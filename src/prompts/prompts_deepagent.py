@@ -15,10 +15,16 @@ END_TOOL_RESPONSE = "</tool_call_result>"
 # BEGIN_FOLDED_THOUGHT = "<folded_thought>"
 # END_FOLDED_THOUGHT = "</folded_thought>"
 FOLD_THOUGHT = "<fold_thought>"
+SYSTEM_MESSAGE = "<system_message>"
 
 
 def main_reasoning_prompt_openset_general_qa(question, task_specific_prompt=""):  # includes tool search, QA tasks (ToolBench, RestBench, ToolHop, etc.)
-    instruction = f"""You are a highly capable reasoning assistant, able to perform tool searches and tool calls to accurately answer questions. Your core abilities include:
+    """
+    Returns a tuple of (system_prompt, user_prompt) for proper chat template formatting.
+    System prompt contains instructions, examples, and rules.
+    User prompt contains only the task/question.
+    """
+    system_prompt = f"""You are a highly capable reasoning assistant, able to perform tool searches and tool calls to accurately answer questions. Your core abilities include:
 
 - Searching for helpful tools: Write {BEGIN_TOOL_SEARCH} your tool search query {END_TOOL_SEARCH}.
   The system will search and analyze available tools, then return a list of relevant tools in the format {BEGIN_TOOL_SEARCH_RESULT} helpful tools with descriptions and parameters {END_TOOL_SEARCH_RESULT}.
@@ -71,18 +77,27 @@ Remember:
 - Always strictly follow the specified formats for tool search, tool call, and thought folding.
 - Ensure tool names and parameters are provided accurately in each tool call.
 - Once you have gathered enough information to answer the question, present your final answer in the format \\boxed{{YOUR_ANSWER}} and stop reasoning.
+- **CRITICAL: Generate ONLY ONE action per response** - either one tool search, one tool call, OR one fold thought marker. Wait for the system response before generating your next action. Do not generate multiple actions in a single response."""
 
-Now, begin your reasoning for the following question:
-{question}
-"""
+    user_prompt = f"""Now, begin your reasoning for the following question:
+{question}"""
+
     if task_specific_prompt != "":
-        instruction = instruction.replace("Now, begin your reasoning for", f"Task-specific instructions: {task_specific_prompt}\n\nNow, begin your reasoning for")
-    return instruction
+        user_prompt = f"""Task-specific instructions: {task_specific_prompt}
+
+{user_prompt}"""
+
+    return (system_prompt, user_prompt)
 
 
 
 def main_reasoning_prompt_closeset_general_qa(question, tool_list, task_specific_prompt=""):  # no tool search, QA tasks (ToolBench, RestBench, ToolHop, GAIA, HLE, etc.)
-    instruction = f"""You are a highly capable reasoning assistant, able to call tools to accurately answer questions or complete tasks. Your core abilities include:
+    """
+    Returns a tuple of (system_prompt, user_prompt) for proper chat template formatting.
+    System prompt contains instructions, examples, and rules.
+    User prompt contains the question and available tools.
+    """
+    system_prompt = f"""You are a highly capable reasoning assistant, able to call tools to accurately answer questions or complete tasks. Your core abilities include:
 
 - Calling a tool and receiving its response: Write {BEGIN_TOOL_CALL}\n{{"name": "tool_name", "arguments": {{"param1": "value1", "param2": "value2", ...}}}}\n{END_TOOL_CALL}.
   The system will provide the tool's response in the format {BEGIN_TOOL_RESPONSE}\ntool response\n{END_TOOL_RESPONSE}.
@@ -123,22 +138,31 @@ Remember:
 - Always strictly follow the specified formats for tool call and thought folding.
 - Ensure tool names and parameters are provided accurately in each tool call.
 - Once you have gathered enough information to answer the question, present your final answer in the format \\boxed{{YOUR_ANSWER}} and stop reasoning.
+- **CRITICAL: Generate ONLY ONE action per response** - either one tool call OR one fold thought marker. Wait for the system response before generating your next action. Do not generate multiple actions in a single response."""
 
-Question:
+    user_prompt = f"""Question:
 {question}
 
 Available tools:
 {tool_list}
 
-Now, begin your reasoning for question "{question}" with the available tools.
-"""
+Now, begin your reasoning for question "{question}" with the available tools."""
+
     if task_specific_prompt != "":
-        instruction = instruction.replace("Now, begin your reasoning for", f"Task-specific instructions: {task_specific_prompt}\n\nNow, begin your reasoning for")
-    return instruction
+        user_prompt = f"""Task-specific instructions: {task_specific_prompt}
+
+{user_prompt}"""
+
+    return (system_prompt, user_prompt)
 
 
 def main_reasoning_prompt_closeset_embodied_task(question, tool_list):  # no tool search, embodied tasks (ALFWorld, etc.)
-    return f"""You are an intelligent embodied agent operating in a virtual environment. Your goal is to interact with the environment step by step to accomplish the given task or answer the question. You can perform actions (such as moving, picking up objects, opening containers, etc.) by calling the available tools, and you will receive observations from the environment after each action.
+    """
+    Returns a tuple of (system_prompt, user_prompt) for proper chat template formatting.
+    System prompt contains instructions, examples, and rules.
+    User prompt contains the task and available actions.
+    """
+    system_prompt = f"""You are an intelligent embodied agent operating in a virtual environment. Your goal is to interact with the environment step by step to accomplish the given task or answer the question. You can perform actions (such as moving, picking up objects, opening containers, etc.) by calling the available tools, and you will receive observations from the environment after each action.
 
 Your core abilities include:
 
@@ -210,19 +234,26 @@ Remember:
 - Always strictly follow the specified formats for tool call and thought folding.
 - Ensure tool names and parameters are provided accurately in each tool call.
 - If you get stuck or your reasoning becomes too lengthy, you can fold your thoughts and reconsider your approach.
+- **CRITICAL: Generate ONLY ONE action per response** - either one tool call OR one fold thought marker. Wait for the system response before generating your next action. Do not generate multiple actions in a single response."""
 
-Now, begin your reasoning for the task using the available actions.
+    user_prompt = f"""Now, begin your reasoning for the task using the available actions.
 
 Available actions:
 {tool_list}
 
 Task:
-{question}
-"""
+{question}"""
+
+    return (system_prompt, user_prompt)
 
 
 def main_reasoning_prompt_closeset_web_navigation(question, tool_list):  # no tool search, web navigation tasks (WebShop, etc.)
-    return f"""You are an intelligent web navigation assistant. Your task is to interact with web pages and use the available actions (tools) to complete the user's task. Your core abilities include:
+    """
+    Returns a tuple of (system_prompt, user_prompt) for proper chat template formatting.
+    System prompt contains instructions, examples, and rules.
+    User prompt contains the task and available actions.
+    """
+    system_prompt = f"""You are an intelligent web navigation assistant. Your task is to interact with web pages and use the available actions (tools) to complete the user's task. Your core abilities include:
 
 - Calling a web navigation action and receiving its response: Write {BEGIN_TOOL_CALL}
 {{"name": "tool_name", "arguments": {{"param1": "value1", "param2": "value2", ...}}}}
@@ -313,19 +344,24 @@ Remember:
 - Always strictly follow the specified formats for tool call and thought folding.
 - Ensure tool names and parameters are provided accurately in each tool call.
 - Before making a purchase, ensure that the product you select satisfies all of the user's specified attribute requirements.
+- **CRITICAL: Generate ONLY ONE action per response** - either one tool call OR one fold thought marker. Wait for the system response before generating your next action. Do not generate multiple tool calls in a single response."""
 
-Now, begin your reasoning for the user's task using the available actions.
+    user_prompt = f"""Now, begin your reasoning for the user's task using the available actions.
 
 Available actions:
 {tool_list}
 
 User's task:
-{question}
-"""
+{question}"""
+
+    return (system_prompt, user_prompt)
 
 
 def get_helpful_tools_prompt(query, search_intent, tool_search_result):
-    return f"""You are a tool selection assistant. Your task is to select the most relevant tools according to the given search query and previous thoughts. 
+    """
+    Returns a tuple of (system_prompt, user_prompt) for proper chat template formatting.
+    """
+    system_prompt = """You are a tool selection assistant. Your task is to select the most relevant tools according to the given search query and previous thoughts.
 
 Guidelines:
 
@@ -340,7 +376,11 @@ Guidelines:
 [{{"name": "tool_name", "description": "Detailed description of what the tool does.", "parameters": {{"type": "object", "properties": {{"param1": {{"type": "string", "description": "Description of the first parameter"}}, "param2": {{"type": "string", "description": "Description of the second parameter"}}}}, "required": ["param1"]}}}}, ... (other helpful tools)]
 ```
 
-**Inputs:**
+Remember:
+- Only output the helpful tools that can potentially fulfill the latest tool requirements as indicated in the search intent.
+- After completing your analysis of the searched tools, output the helpful tool list directly in JSON format."""
+
+    user_prompt = f"""**Inputs:**
 
 - **Search Query:**
 {query}
@@ -351,25 +391,25 @@ Guidelines:
 - **Searched Tools:**
 {tool_search_result}
 
-Remember:
-- Only output the helpful tools that can potentially fulfill the latest tool requirements as indicated in the search intent.
-- After completing your analysis of the searched tools, output the helpful tool list directly in JSON format.
+Now please carefully analyze the searched tools and provide helpful tools for the search query."""
 
-Now please carefully analyze the searched tools and provide helpful tools for the search query.
-"""
+    return (system_prompt, user_prompt)
 
 
 
 def tool_response_analysis_prompt(tool_call, tool_call_intent, tool_response):
-    return f"""You are a tool response analysis assistant. Based on the tool call, tool call intent, and the tool response, extract and summarize all information from the tool_response that is helpful for the current task.
+    """
+    Returns a tuple of (system_prompt, user_prompt) for proper chat template formatting.
+    """
+    system_prompt = """You are a tool response analysis assistant. Based on the tool call, tool call intent, and the tool response, extract and summarize all information from the tool_response that is helpful for the current task.
 
 Please strictly follow these instructions:
 
 1. Carefully read the Tool Call, Tool Call Intent, and Tool Response.
 2. Only return information from the tool_response that is helpful for the current task. The content should be complete and accurate. Do not omit any useful details.
-3. Do not add any extra explanation or reasoning. Only output the original helpful information or its accurate summary.
+3. Do not add any extra explanation or reasoning. Only output the original helpful information or its accurate summary."""
 
-**Inputs:**
+    user_prompt = f"""**Inputs:**
 
 - Tool Call:
 {tool_call}
@@ -380,21 +420,47 @@ Please strictly follow these instructions:
 - Tool Response:
 {tool_response}
 
-Please directly output the helpful information from the tool response without any other text.
-"""
+Please directly output the helpful information from the tool response without any other text."""
+
+    return (system_prompt, user_prompt)
 
 def get_tool_search_intent_instruction(prev_reasoning):
-    return f"""Based on the previous thoughts below, summarize the detailed intent of the latest tool search query.
-Previous thoughts: {prev_reasoning}
+    """
+    Returns a tuple of (system_prompt, user_prompt) for proper chat template formatting.
+    """
+    system_prompt = "You are an assistant that summarizes the intent of tool search queries based on previous reasoning."
+    user_prompt = f"""Based on the previous thoughts below, summarize the detailed intent of the latest tool search query.
+
+Previous thoughts:
+{prev_reasoning}
+
 Please directly output the latest tool search intent."""
+    return (system_prompt, user_prompt)
 
 def get_tool_call_intent_instruction(prev_reasoning):
-    return f"""Based on the previous thoughts below, summarize the detailed intent of the latest tool call.
-Previous thoughts: {prev_reasoning}
+    """
+    Returns a tuple of (system_prompt, user_prompt) for proper chat template formatting.
+    """
+    system_prompt = "You are an assistant that summarizes the intent of tool calls based on previous reasoning."
+    user_prompt = f"""Based on the previous thoughts below, summarize the detailed intent of the latest tool call.
+
+Previous thoughts:
+{prev_reasoning}
+
 Please directly output the latest tool call intent."""
+    return (system_prompt, user_prompt)
 
 def get_folded_thought_instruction(question, prev_reasoning):
-    return f"""Based on the question and previous thoughts and interaction history, summarize the detailed interaction history and task progress.
+    """
+    Returns a tuple of (system_prompt, user_prompt) for proper chat template formatting.
+    """
+    system_prompt = """You are an assistant that summarizes interaction history and task progress.
+
+Remember:
+- Make sure to include all potentially helpful searched tools and tool calls with detailed descriptions and parameters in the interaction history.
+- Make sure to include all task progress and lessons learned from the interaction history."""
+
+    user_prompt = f"""Based on the question and previous thoughts and interaction history, summarize the detailed interaction history and task progress.
 
 Question:
 {question}
@@ -402,58 +468,39 @@ Question:
 Previous thoughts and interaction history:
 {prev_reasoning}
 
-Remember:
-- Make sure to include all potentially helpful searched tools and tool calls with detailed descriptions and parameters in the interaction history.
-- Make sure to include all task progress and lessons learned from the interaction history.
-
-Please directly output the detailed interaction history and task progress for the question "{question}".
-"""
+Please directly output the detailed interaction history and task progress for the question "{question}"."""
+    return (system_prompt, user_prompt)
 
 
 
 def get_episode_memory_instruction(question, prev_reasoning, available_tools=""):
-    instruction = f"""You are a memory compression assistant. Your task is to summarize the key events and decisions in the agent's reasoning process into structured episode memory.
-
-Task:
-{question}
-
-Available tools:
-{available_tools}
-
-Full reasoning history:
-{prev_reasoning}
+    """
+    Returns a tuple of (system_prompt, user_prompt) for proper chat template formatting.
+    """
+    system_prompt = """You are a memory compression assistant. Your task is to summarize the key events and decisions in the agent's reasoning process into structured episode memory.
 
 Instructions:
 1. Identify major milestones, subgoal completions, and strategic decisions
 2. Extract only the most critical events that provide experience for long-term goals
 3. Output in this JSON format:
 ```json
-{{
+{
   "task_description": "A general summary of what the reasoning history has been doing and the overall goals it has been striving for.",
   "key_events": [
-    {{
+    {
       "step": "step number",
       "description": "A detailed description of the specific action taken, decision made, or milestone achieved at this step, including relevant context and reasoning behind the choice.",
       "outcome": "A detailed account of the direct result, observation, or feedback received from this action or decision, including any new information gained or changes in the task state."
-    }},
+    },
     ...
   ],
   "current_progress": "A general summary of the current progress of the task, including what has been completed and what is left to be done."
-}}
+}
 ```
 
-Now generate the episode memory for the task: {question}
-Directly output the JSON format episode memory. Do not include any other text.
-"""
-    if available_tools == "":
-        instruction = instruction.replace("\nAvailable tools:\n", "")
-    return instruction
+Directly output the JSON format episode memory. Do not include any other text."""
 
-
-def get_working_memory_instruction(question, prev_reasoning, available_tools=""):
-    instruction = f"""You are a working memory manager. Create a concise snapshot of the agent's CURRENT working state.
-
-Task:
+    user_prompt = f"""Task:
 {question}
 
 Available tools:
@@ -462,35 +509,93 @@ Available tools:
 Full reasoning history:
 {prev_reasoning}
 
+Now generate the episode memory for the task: {question}"""
+
+    if available_tools == "":
+        user_prompt = user_prompt.replace("\nAvailable tools:\n", "")
+
+    return (system_prompt, user_prompt)
+
+
+def get_working_memory_instruction(question, prev_reasoning, available_tools=""):
+    """
+    Returns a tuple of (system_prompt, user_prompt) for proper chat template formatting.
+    """
+    system_prompt = """You are a working memory manager. Create a concise snapshot of the agent's CURRENT working state.
+
 Instructions:
 1. Extract ONLY immediate goals, current challenges, and next steps
 2. Ignore completed/historical information
 3. Output in this JSON format:
 ```json
-{{
+{
   "immediate_goal": "A clear summary of the current subgoal—what you are actively working toward at this moment.",
   "current_challenges": "A concise summary of the main obstacles or difficulties you are presently encountering.",
   "next_actions": [
-    {{
+    {
       "type": "tool_call/planning/decision",
       "description": "Anticipate and describe the next concrete action you intend to take to advance the task."
-    }},
+    },
     ...
   ]
-}}
+}
 ```
 
-Now generate the current working memory for the task: {question}
-Directly output the JSON format current working memory. Do not include any other text.
-"""
+Directly output the JSON format current working memory. Do not include any other text."""
+
+    user_prompt = f"""Task:
+{question}
+
+Available tools:
+{available_tools}
+
+Full reasoning history:
+{prev_reasoning}
+
+Now generate the current working memory for the task: {question}"""
+
     if available_tools == "":
-        instruction = instruction.replace("\nAvailable tools:\n", "")
-    return instruction
+        user_prompt = user_prompt.replace("\nAvailable tools:\n", "")
+
+    return (system_prompt, user_prompt)
 
 def get_tool_memory_instruction(question, prev_reasoning, tool_call_history, available_tools=""):
-    instruction = f"""You are a tool experience recorder. Synthesize tool usage patterns into structured knowledge.
+    """
+    Returns a tuple of (system_prompt, user_prompt) for proper chat template formatting.
+    """
+    system_prompt = """You are a tool experience recorder. Synthesize tool usage patterns into structured knowledge.
 
-Task:
+Instructions:
+1. Analyze successful/unsuccessful tool patterns
+2. Extract metadata about each tool's:
+   - Effective parameter combinations
+   - Common failure modes
+   - Typical response structures
+3. Output in this JSON format:
+```json
+{
+  "tools_used": [
+    {
+      "tool_name": "string",
+      "success_rate": "float",
+      "effective_parameters": ["param1", "param2"],
+      "common_errors": ["error_type1", "error_type2"],
+      "response_pattern": "description of typical output",
+      "experience": "Reflect and summarize your experience using this tool, including both successes and failures."
+    },
+    ...
+  ],
+  "derived_rules": [
+    "When X condition occurs, prefer tool Y",
+    "Tool Z works best with parameter A set to B",
+    ...
+  ]
+}
+```
+
+Directly output the JSON format tool memory. Do not include any other text."""
+
+    user_prompt = f"""Task:
 {question}
 
 Available tools:
@@ -502,40 +607,12 @@ Full reasoning history:
 Tool Call History (in chronological order):
 {tool_call_history}
 
-Instructions:
-1. Analyze successful/unsuccessful tool patterns
-2. Extract metadata about each tool's:
-   - Effective parameter combinations
-   - Common failure modes
-   - Typical response structures
-3. Output in this JSON format:
-```json
-{{
-  "tools_used": [
-    {{
-      "tool_name": "string",
-      "success_rate": "float",
-      "effective_parameters": ["param1", "param2"],
-      "common_errors": ["error_type1", "error_type2"],
-      "response_pattern": "description of typical output",
-      "experience": "Reflect and summarize your experience using this tool, including both successes and failures."
-    }},
-    ...
-  ],
-  "derived_rules": [
-    "When X condition occurs, prefer tool Y",
-    "Tool Z works best with parameter A set to B",
-    ...
-  ]
-}}
-```
+Now generate the tool memory for the task: {question}"""
 
-Now generate the tool memory for the task: {question}
-Directly output the JSON format tool memory. Do not include any other text.
-"""
     if available_tools == "":
-        instruction = instruction.replace("\nAvailable tools:\n", "")
-    return instruction
+        user_prompt = user_prompt.replace("\nAvailable tools:\n", "")
+
+    return (system_prompt, user_prompt)
 
 def get_gpt_oss_system_prompt():
     return """You are an advanced reasoning assistant with exceptional analytical capabilities. You should engage in deep, thorough thinking before providing responses.
@@ -548,19 +625,21 @@ def get_rapidapi_simulation_prompt(api_name, tool_name, category_name, openai_fu
     """Construct a prompt for the aux LLM to simulate a RapidAPI call.
 
     The model must return ONLY a realistic JSON object representing the tool response.
+    Returns a tuple of (system_prompt, user_prompt) for proper chat template formatting.
     """
     function_name = openai_function_def.get("name", "")
     function_desc = openai_function_def.get("description", "")
     parameters = openai_function_def.get("parameters", {})
     schema_str = json.dumps(parameters, ensure_ascii=False, indent=2)
-    return f"""You are simulating an API call result. Given the API context and the tool call arguments, produce a realistic JSON response that this API would return.
+
+    system_prompt = """You are simulating an API call result. Given the API context and the tool call arguments, produce a realistic JSON response that this API would return.
 
 Constraints:
 - Output ONLY a valid JSON object. No prose or explanations.
 - Be consistent with typical REST API responses (use plausible fields and values).
-- If inputs are insufficient, still return a best-effort JSON with appropriate error-like fields.
+- If inputs are insufficient, still return a best-effort JSON with appropriate error-like fields."""
 
-API Context:
+    user_prompt = f"""API Context:
 - Category: {category_name}
 - Tool: {tool_name}
 - API (function) name: {api_name} / {function_name}
@@ -572,3 +651,5 @@ Tool Call Arguments (JSON):
 {arguments_json}
 
 Return ONLY the JSON result that such an API would plausibly return."""
+
+    return (system_prompt, user_prompt)
